@@ -1,0 +1,33 @@
+# environment.yml
+# create environment with:
+# $  conda env create -f environment.yml
+name: dissipationIFR
+
+channels:
+  - conda-forge
+
+dependencies:
+  - python=3.14
+
+  - numpy
+  - scipy
+  - pandas
+  - xarray
+
+  - ipython
+  - ipykernel
+
+  - matplotlib
+
+  - netcdf4
+  - cftime
+
+  - pyyaml
+  - tqdm
+
+  - pip
+
+  - pip:
+      - gsw
+      - cmocean
+      - git+https://github.com/ocean-uhh/seagliderOG1.git
