@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dissipationIFR"
+version = "0.0.0"
+description = "Dissipation IFR package"
+readme = "README.md"
+requires-python = ">=3.8"
+authors = [ { name = "Till Moritz", email = "till.moritz@uni-hamburg.de" } ]
+license = { file = "LICENSE" }
+dependencies = []
+
+[tool.setuptools]
+packages = ["dissipationIFR"]
+
+[tool.setuptools.dynamic]
+"version" = {attr = "dissipationIFR.__version__"}
+
+[tool.setuptools.package-data]
+"dissipationIFR" = ["py.typed"]
+
+# Optional: enable editable installs (PEP 660) with setuptools
+[project.optional-dependencies]
+dev = ["pytest", "flake8"]

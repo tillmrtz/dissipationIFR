@@ -428,5 +428,9 @@ FodyWeavers.xsd
 *.msm
 *.msp
 
+# ignorer the dissipationIFR.egg-info directory
+dissipationIFR.egg-info/
+*.DS_Store
+
 # Ignore the playground notebooks
 *playground.ipynb
