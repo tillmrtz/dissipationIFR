@@ -12,14 +12,12 @@ authors = [ { name = "Till Moritz", email = "till.moritz@uni-hamburg.de" } ]
 license = { file = "LICENSE" }
 dependencies = []
 
-[tool.setuptools]
-packages = ["dissipationIFR"]
-
-[tool.setuptools.dynamic]
-"version" = {attr = "dissipationIFR.__version__"}
+[tool.setuptools.packages.find]
+include = ["dissipationIFR*"]   # catches dissipationIFR.config automatically
 
 [tool.setuptools.package-data]
 "dissipationIFR" = ["py.typed"]
+"dissipationIFR.config" = ["*.yml", "*.mplstyle"]  # <-- include your data files
 
 # Optional: enable editable installs (PEP 660) with setuptools
 [project.optional-dependencies]
