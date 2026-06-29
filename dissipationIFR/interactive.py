@@ -1,21 +1,24 @@
+import os
+import pathlib
+import warnings
+
 import ipywidgets as widgets
 from IPython.display import display, clear_output
-import os
-import warnings
-from seagliderOG1 import readers
-import pathlib
+
+from dissipationIFR.utilities import discover_all_missions
+
 
 def interactive_glider_selection(data_dir):
     """
-    Interactive function that displays all gliders and their dedicated missions discovered
-    directly from the filesystem. Only folders matching the structure glider_sn/mission/*.nc
-    are considered. After confirming the selection, a dictionary with the mission path and
-    metadata is returned.
+    Interactive widget that displays all gliders and their dedicated missions
+    discovered directly from the filesystem. Only folders matching the structure
+    glider_sn/mission/*.nc are considered. After confirming the selection, a
+    dictionary with the mission path and metadata is returned.
 
     Parameters:
     -----------
     data_dir (str | Path):
-        The root directory where glider data is stored, expected structure:
+        Root directory where glider data is stored:
             data_dir/
                 glider_sn/
                     mission_date/*.nc
@@ -29,44 +32,11 @@ def interactive_glider_selection(data_dir):
     """
     data_dir = pathlib.Path(data_dir)
 
-    ### Check if directory exists
     if not data_dir.exists():
         raise FileNotFoundError(f"The specified directory does not exist: {data_dir}")
 
-    ### Discover glider_sn/mission folders that contain valid .nc files
-    def get_mission_dives(mission_path):
-        """List valid files in mission folder and return max dive number, or None if empty."""
-        files = readers.list_files(str(mission_path))
-        filtered_files = readers.filter_files_by_profile(files)
-        if not filtered_files:
-            return None
-        dive_numbers = [
-            readers._profnum_from_filename(f)
-            for f in filtered_files
-        ]
-        dive_numbers = [d for d in dive_numbers if d is not None]
-        return max(dive_numbers) if dive_numbers else None
+    discovered = discover_all_missions(data_dir)
 
-    # Build structure: {glider_sn: [{mission, path, dives}, ...]}
-    discovered = {}
-    for glider_dir in sorted(data_dir.iterdir()):
-        if not glider_dir.is_dir():
-            continue
-        missions = []
-        for mission_dir in sorted(glider_dir.iterdir()):
-            if not mission_dir.is_dir():
-                continue
-            n_dives = get_mission_dives(mission_dir)
-            if n_dives is not None:
-                missions.append({
-                    'mission': mission_dir.name,       # e.g. '20080606'
-                    'path': mission_dir,
-                    'dives': n_dives,
-                })
-        if missions:
-            discovered[glider_dir.name] = missions     # e.g. '015'
-
-    ### Warn and exit early if nothing found
     if not discovered:
         warnings.warn(
             f"No valid glider/mission/*.nc structure found in: {data_dir}",
@@ -82,9 +52,9 @@ def interactive_glider_selection(data_dir):
         return f"{date_str} (dives: {m['dives']})"
 
     ### Pre-select first glider and its first mission
-    first_glider_name  = next(iter(discovered))
-    first_missions     = discovered[first_glider_name]
-    first_mission      = first_missions[0]
+    first_glider_name = next(iter(discovered))
+    first_missions    = discovered[first_glider_name]
+    first_mission     = first_missions[0]
 
     glider_dropdown = widgets.Dropdown(
         options=list(discovered.keys()),
@@ -107,25 +77,25 @@ def interactive_glider_selection(data_dir):
 
     def update_missions(change):
         selected_glider = change['new']
-        missions = discovered[selected_glider]
-        labels = [mission_label(m) for m in missions]
+        missions        = discovered[selected_glider]
+        labels          = [mission_label(m) for m in missions]
 
         if labels:
-            mission_dropdown.options = labels
+            mission_dropdown.options  = labels
             mission_dropdown.disabled = False
         else:
-            mission_dropdown.options = ['No available missions']
+            mission_dropdown.options  = ['No available missions']
             mission_dropdown.disabled = True
 
     def confirm_selection(b):
-        selected_glider  = glider_dropdown.value
-        selected_label   = mission_dropdown.value
+        selected_glider = glider_dropdown.value
+        selected_label  = mission_dropdown.value
 
         if selected_label == 'No available missions':
             path_output['path'] = None
         else:
-            missions   = discovered[selected_glider]
-            labels     = [mission_label(m) for m in missions]
+            missions    = discovered[selected_glider]
+            labels      = [mission_label(m) for m in missions]
             mission_obj = missions[labels.index(selected_label)]
 
             path_output['path']    = str(mission_obj['path']) + os.sep
@@ -144,3 +114,45 @@ def interactive_glider_selection(data_dir):
     display(glider_dropdown, mission_dropdown, confirm_button)
 
     return path_output
+
+
+def interactive_cli(data_dir: pathlib.Path, discovered: dict) -> dict:
+    """Terminal prompt fallback for glider/mission selection."""
+    glider_names = list(discovered.keys())
+
+    print("\nAvailable gliders:")
+    for i, name in enumerate(glider_names):
+        print(f"  [{i}] {name}")
+
+    while True:
+        try:
+            idx = int(input(f"Select glider [0-{len(glider_names)-1}]: "))
+            if 0 <= idx < len(glider_names):
+                break
+        except ValueError:
+            pass
+        print("  Invalid input, try again.")
+
+    selected_glider = glider_names[idx]
+    missions        = discovered[selected_glider]
+
+    print(f"\nAvailable missions for glider {selected_glider}:")
+    for i, m in enumerate(missions):
+        print(f"  [{i}] {m['mission']}  (dives: {m['dives']})")
+
+    while True:
+        try:
+            idx = int(input(f"Select mission [0-{len(missions)-1}]: "))
+            if 0 <= idx < len(missions):
+                break
+        except ValueError:
+            pass
+        print("  Invalid input, try again.")
+
+    selected = missions[idx]
+    return {
+        'path'   : str(selected['path']) + os.sep,
+        'dives'  : selected['dives'],
+        'glider' : selected_glider,
+        'mission': selected['mission'],
+    }

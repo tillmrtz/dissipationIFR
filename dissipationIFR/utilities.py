@@ -1,8 +1,11 @@
+import pathlib
+
 import numpy as np
 import pandas as pd
 import xarray as xr
 
 from dissipationIFR.config.variables import variables
+from seagliderOG1 import readers
 
 
 def construct_2dgrid(x, y, v, xi=1, yi=1, x_bin_center: bool = True, y_bin_center: bool = True, agg: str = 'median'):
@@ -145,3 +148,111 @@ def plotting_cmap(var: str):
         return variables[var]['colormap']
     else:
         return "viridis"
+
+
+# --------------------------------------------------------------
+# Helpers for the load and convert script and interactive CLI
+# --------------------------------------------------------------
+
+
+def _is_mission_dir(path: pathlib.Path, readers) -> bool:
+    """Return True if `path` directly contains valid basestation .nc files."""
+    return bool(readers.list_files(str(path)))
+
+
+def _is_root_dir(path: pathlib.Path, readers) -> bool:
+    """Return True if `path` contains at least one glider_sn/mission/ subfolder
+    that itself contains valid .nc files."""
+    for glider_dir in path.iterdir():
+        if not glider_dir.is_dir():
+            continue
+        for mission_dir in glider_dir.iterdir():
+            if not mission_dir.is_dir():
+                continue
+            if readers.list_files(str(mission_dir)):
+                return True
+    return False
+
+
+def get_mission_dives(mission_path: pathlib.Path) -> int | None:
+    """
+    List valid files in a mission folder and return the max dive number,
+    or None if no valid files are found.
+
+    Parameters:
+    -----------
+    mission_path (Path):
+        Path to a single mission folder, e.g. /data/103/20070218/
+
+    Returns:
+    --------
+    int | None:
+        Maximum dive/profile number found, or None if folder has no valid files.
+    """
+    files          = readers.list_files(str(mission_path))
+    filtered_files = readers.filter_files_by_profile(files)
+    if not filtered_files:
+        return None
+    dive_numbers = [readers._profnum_from_filename(f) for f in filtered_files]
+    dive_numbers = [d for d in dive_numbers if d is not None]
+    return max(dive_numbers) if dive_numbers else None
+
+
+def discover_all_missions(data_dir: pathlib.Path) -> dict[str, list[dict]]:
+    """
+    Walk data_dir and discover all valid glider/mission folders.
+
+    Expected structure:
+        data_dir/
+            glider_sn/
+                mission_date/
+                    *.nc
+
+    Parameters:
+    -----------
+    data_dir (str | Path):
+        Root directory containing glider subfolders.
+
+    Returns:
+    --------
+    dict:
+        Structured as:
+            {
+                'glider_sn': [
+                    {'mission': '20070218', 'path': Path(...), 'dives': 679},
+                    ...
+                ],
+                ...
+            }
+        Only missions containing valid basestation .nc files are included.
+    """
+    data_dir   = pathlib.Path(data_dir)
+    discovered = {}
+
+    for glider_dir in sorted(data_dir.iterdir()):
+        if not glider_dir.is_dir():
+            continue
+        missions = []
+        for mission_dir in sorted(glider_dir.iterdir()):
+            if not mission_dir.is_dir():
+                continue
+            n_dives = get_mission_dives(mission_dir)
+            if n_dives is not None:
+                missions.append({
+                    'mission': mission_dir.name,   # e.g. '20070218'
+                    'path'   : mission_dir,
+                    'dives'  : n_dives,
+                })
+        if missions:
+            discovered[glider_dir.name] = missions  # e.g. '103'
+
+    return discovered
+
+
+def _in_jupyter() -> bool:
+    """Return True when running inside a Jupyter kernel."""
+    try:
+        from IPython import get_ipython
+        return get_ipython() is not None
+    except ImportError:
+        return False
