@@ -1,5 +1,5 @@
-#server_url: "https://www.ncei.noaa.gov/data/oceans/glider/seaglider/uw/"
-data_folder: "/Users/u302042/Desktop/Master_Thesis/data/Glider/"
+#server_url: "https://www.ncei.noaa.gov/data/oceans/glider/seaglider/uw/" # old server, does not work anymore
+
 
 gliders:
   - name: "005"
@@ -20,17 +20,17 @@ gliders:
         folder: "012/20070831"
   - name: "014"
     missions:
-    #  - date: 02/08
-    #    dives: 70
-    #    folder: "014/20080214"
+      - date: 02/08
+        dives: 70
+        folder: "014/20080214"
       - date: 08/08
         dives: 439
         folder: "014/20080829"
   - name: "016"
     missions:
-    ##  - date: 11/06
-    #    dives: 124
-    #    folder: "016/20061112"
+      - date: 11/06
+        dives: 124
+        folder: "016/20061112"
       - date: 11/07
         dives: 452
         folder: "016/20071113"
@@ -42,9 +42,9 @@ gliders:
         folder: "016/20090605"
   - name: "101"
     missions:
-    #  - date: 11/06
-    #    dives: 578
-    #    folder: "101/20061112"
+      - date: 11/06
+        dives: 578
+        folder: "101/20061112"
       - date: 06/07
         dives: 453
         folder: "101/20070609"
@@ -53,9 +53,9 @@ gliders:
         folder: "101/20081108"
   - name: "102"
     missions:
-      #- date: 11/06
-      #  dives: 630
-      #  folder: "102/20061112"
+      - date: 11/06
+        dives: 630
+        folder: "102/20061112"
       - date: 06/07
         dives: 22
         folder: "no folder"
@@ -87,9 +87,9 @@ gliders:
       - date: 09/07
         dives: 371
         folder: "104/20070901"
-    #  - date: 02/08
-    #    dives: 112
-    #    folder: "104/20080214"
+      - date: 02/08
+        dives: 112
+        folder: "104/20080214"
       - date: 11/08
         dives: 1
         folder: "no folder"
