@@ -12,8 +12,11 @@ authors = [ { name = "Till Moritz", email = "till.moritz@uni-hamburg.de" } ]
 license = { file = "LICENSE" }
 dependencies = []
 
-[tool.setuptools]
-packages = ["dissipationIFR"]
+[tool.setuptools.packages.find]
+include = ["dissipationIFR*"]
+
+[tool.setuptools.package-data]
+dissipationIFR = ["config/*"]
 
 [tool.setuptools.dynamic]
 "version" = {attr = "dissipationIFR.__version__"}
