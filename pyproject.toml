@@ -13,16 +13,11 @@ license = { file = "LICENSE" }
 dependencies = []
 
 [tool.setuptools.packages.find]
-include = ["dissipationIFR*"]
-
-[tool.setuptools.package-data]
-dissipationIFR = ["config/*"]
-
-[tool.setuptools.dynamic]
-"version" = {attr = "dissipationIFR.__version__"}
+include = ["dissipationIFR*"]   # catches dissipationIFR.config automatically
 
 [tool.setuptools.package-data]
 "dissipationIFR" = ["py.typed"]
+"dissipationIFR.config" = ["*.yml", "*.mplstyle"]  # <-- include your data files
 
 # Optional: enable editable installs (PEP 660) with setuptools
 [project.optional-dependencies]
