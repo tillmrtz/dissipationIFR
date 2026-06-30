@@ -6,6 +6,9 @@ import ipywidgets as widgets
 from IPython.display import display, clear_output
 
 from dissipationIFR.utilities import discover_all_missions
+from dissipationIFR import plots
+import numpy as np
+import matplotlib.pyplot as plt
 
 
 def interactive_glider_selection(data_dir):
@@ -116,8 +119,11 @@ def interactive_glider_selection(data_dir):
     return path_output
 
 
-def interactive_cli(data_dir: pathlib.Path, discovered: dict) -> dict:
+def interactive_cli(data_dir: pathlib.Path) -> dict:
     """Terminal prompt fallback for glider/mission selection."""
+
+    discovered = discover_all_missions(data_dir)
+
     glider_names = list(discovered.keys())
 
     print("\nAvailable gliders:")
@@ -156,3 +162,84 @@ def interactive_cli(data_dir: pathlib.Path, discovered: dict) -> dict:
         'glider' : selected_glider,
         'mission': selected['mission'],
     }
+
+def interactive_profile(ds):
+    """
+    Creates an interactive profile viewer with external slider inputs.
+
+    Parameters
+    ----------
+        ds : xarray.Dataset
+            The dataset containing profile information.
+
+    The function provides the following interactive widgets:
+        - Profile Number: Selects the profile number from available profiles.
+        - Variable 1, Variable 2, Variable 3: Dropdowns to choose up to three variables to plot.
+        - Use Binned Data: Checkbox to toggle between raw and binned data.
+        - Binning Resolution: Slider to adjust the binning resolution if binned data is used.
+
+    Notes
+    -----
+    Original author: Till Moritz
+    """
+
+    def plot_func(profile_num, var1, var2, var3, use_bins, binning, one_axis):
+        vars = [var1, var2, var3]
+        fig, ax = plots.plot_profile(ds, profile_num, vars, use_bins, binning, one_axis)
+        display(fig)
+        plt.close(fig)
+        del fig, ax
+
+    profile_slider = widgets.SelectionSlider(options=np.unique(ds.PROFILE_NUMBER.values).astype(int), description='Profile:', continuous_update=False)
+
+    # Variable selection dropdowns (with an empty option)
+    # take only into account the variables with float or int data type
+    var_options = ['','TIME'] + [var for var in ds.data_vars if ds[var].dtype.kind in {'i', 'f'}]
+    ### also add the possible coordinates
+    var_options += [var for var in ds.coords if ds[var].dtype.kind in {'i', 'f'}]
+
+    var1_dropdown = widgets.Dropdown(options=var_options, value=var_options[0], description="Var 1:")
+    var2_dropdown = widgets.Dropdown(options=var_options, value=var_options[0], description="Var 2:")
+    var3_dropdown = widgets.Dropdown(options=var_options, value=var_options[0], description="Var 3:")
+
+    # Checkbox for using binned data
+    use_bins_button = widgets.Checkbox(value=False, description='Bin Data')
+
+    # Checkbox for using a single axis for all variables
+    one_axis_button = widgets.Checkbox(value=False, description='One Axis')
+
+    # Binning resolution slider
+    binning_slider = widgets.FloatSlider(value=2, min=1, max=20, step=1,description='Res (m):',continuous_update=False)
+
+
+    # Use a VBox to show/hide the binning slider based on the checkbox state
+    binning_box = widgets.VBox([binning_slider])
+    def toggle_binning_visibility(change):
+        binning_box.layout.display = 'flex' if change['new'] else 'none'
+
+    # Attach observer to toggle visibility
+    use_bins_button.observe(toggle_binning_visibility, names='value')
+
+    # Set initial visibility
+    binning_box.layout.display = 'none' if not use_bins_button.value else 'flex'
+
+    # Arrange variable dropdowns in a horizontal row
+    var_selection_box = widgets.HBox([var1_dropdown, var2_dropdown, var3_dropdown])
+
+    # Arrange all widgets in a vertical layout
+    ui = widgets.VBox([widgets.Label("Select the profile number to visualize:"),profile_slider,
+                       widgets.Label("Choose up to three variables to plot:"),var_selection_box,
+                       widgets.Label("Additional settings:"),use_bins_button,one_axis_button,binning_box])
+
+    # Create interactive plot
+    out = widgets.interactive_output(plot_func, {
+        'profile_num': profile_slider,
+        'var1': var1_dropdown,
+        'var2': var2_dropdown,
+        'var3': var3_dropdown,
+        'one_axis': one_axis_button,
+        'use_bins': use_bins_button,
+        'binning': binning_slider
+    })
+
+    display(ui, out)

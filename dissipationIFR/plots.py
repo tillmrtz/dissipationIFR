@@ -6,6 +6,7 @@ from matplotlib.ticker import MaxNLocator, LogLocator
 import cmocean.cm as cmo
 import numpy as np
 import pandas as pd
+import xarray as xr
 from scipy.interpolate import interp1d
 
 from dissipationIFR import utilities
@@ -220,3 +221,103 @@ def plot_section(ds, var, v_res=2, start=None, end=None, show_time_axis=True, me
             time_ax.tick_params(rotation=35)
 
     return ax, cbar, time_ax
+
+
+def plot_profile(ds: xr.Dataset, profile_num: int, vars: list = ['TEMP','PSAL','SIGMA_T'], use_bins: bool = False, binning: float = 2,one_axis: bool = False, ax = None) -> tuple:
+    """
+    Plots binned temperature, salinity, and density against depth on a single plot with three x-axes.
+
+    Parameters
+    ----------
+    ds: xarray.Dataset
+        Xarray dataset in OG1 format with at least PROFILE_NUMBER, DEPTH, TEMPERATURE, SALINITY, and DENSITY.
+    profile_num: int
+        The profile number to plot.
+    vars: list
+        The variables to plot. Default is ['TEMP','PSAL','DENSITY'].
+    binning: int
+        The depth resolution for binning.
+    use_bins: bool
+        If True, use binned data instead of raw data.
+
+    Returns
+    -------
+    fig: matplotlib.figure.Figure
+        The figure object containing the plot.
+    ax1: matplotlib.axes.Axes
+        The axis object containing the primary plot.
+
+    Notes
+    -----
+    Original Author: Till Moritz
+    """
+    # Remove empty strings from vars
+    vars = [v for v in vars if v] 
+    # If vars is empty, show an empty plot
+    if not vars:
+        if ax is None:  
+            fig, ax1 = plt.subplots(figsize=(12, 9))
+            force_plot = True
+        else:
+            fig = plt.gcf()
+            force_plot = False
+        ax1.set_title(f'Profile {profile_num} (No Variables Selected)')
+        ax1.set_ylabel('Depth (m)')
+        ax1.invert_yaxis()
+        ax1.grid(True)
+        return fig, ax1
+    
+    if len(vars) > 3:
+        raise ValueError("Only three variables can be plotted at once, chose less variables")
+    
+    with plt.style.context(plotting_style):
+        if ax is None:  
+            fig, ax1 = plt.subplots(figsize=(12, 9))   
+            force_plot = True
+        else:
+            fig = plt.gcf()
+            force_plot = False
+            ax1 = ax  # Use the first axis if provided
+
+        profile = ds.where(ds.PROFILE_NUMBER == profile_num, drop=True)
+        if use_bins:
+            profile = utilities.bin_profile(profile, vars, binning)
+
+        # Plot binned data
+        mission = ds.id.split('_')[1][0:8]
+        glider = ds.id.split('_')[0]
+
+        if one_axis:
+            axs = [ax1] * len(vars)
+        else:
+            axs = [ax1, ax1.twiny(), ax1.twiny()]
+        colors = ['red', 'blue', 'grey']
+        s = 10 + binning
+
+        for i, var in enumerate(vars):
+            ax = axs[i]
+            label = utilities.plotting_labels(var)
+            unit = utilities.plotting_units(ds, var)
+            ax.plot(profile[var], profile['DEPTH'], color=colors[i], label=label)
+            ax.scatter(profile[var], profile['DEPTH'], color=colors[i], marker='o', s=s)
+            ax.set_xlabel(f'{label} [{unit}]', color=colors[i])
+            ax.tick_params(axis='x', colors=colors[i])
+            ax.spines['top'].set_visible(False)
+            if not one_axis and i > 0:
+                ax.xaxis.set_ticks_position('bottom')
+                ax.spines['bottom'].set_position(('axes', -0.09*i))
+                ax.xaxis.set_label_coords(0.5, -0.05-0.105*i)
+            else:
+                ## set the x-axis lables to black and the ticks to black
+                ax.xaxis.label.set_color('black')
+                ax.tick_params(axis='x', colors='black')
+                ## add a legend to the plot with the variable name and color
+                ax.legend(fontsize=12)
+
+        # Set pressure as y-axis (Increasing Downward)
+        ax1.grid(True)
+        ax1.set_ylabel('Depth (m)')
+        ax1.invert_yaxis()  # Pressure increases downward
+        ax1.set_title(f'Profile {profile_num} ({glider} on mission: {mission})')
+
+    return fig, ax1
