@@ -8,6 +8,32 @@ from dissipationIFR.config.variables import variables
 from seagliderOG1 import readers
 
 
+# --------------------------------------------------------------
+# Gridding and interpolation utilities
+# --------------------------------------------------------------
+
+def regular_grid(data, res):
+    """
+    Create bin edges for a regular grid such that multiples of `res` fall on
+    bin centers. For example, with res=5 the edges are [-2.5, 2.5, 7.5, ...]
+
+    Parameters
+    ----------
+    data : array-like
+        Input data used to determine the grid range.
+    res : float
+        Grid resolution (bin width).
+
+    Returns
+    -------
+    numpy.ndarray
+        Bin edges for the regular grid.
+    """
+    d_min = np.floor(np.nanmin(data) / res) * res + res / 2
+    d_max = np.ceil(np.nanmax(data) / res) * res - res / 2
+    return np.arange(d_min, d_max + res + 1, res)
+
+
 def construct_2dgrid(x, y, v, xi=1, yi=1, x_bin_center: bool = True, y_bin_center: bool = True, agg: str = 'median'):
 
     """
@@ -82,6 +108,189 @@ def construct_2dgrid(x, y, v, xi=1, yi=1, x_bin_center: bool = True, y_bin_cente
     return grid, XI, YI
 
 
+def to_numeric(arr):
+    """
+    Convert datetime64 arrays to seconds relative to the first value.
+
+    Returns
+    -------
+    numeric : ndarray
+    dtype : dtype or None
+    reference : datetime64 or None
+    """
+    if np.issubdtype(arr.dtype, np.datetime64):
+        reference = arr[0]
+        numeric = (arr - reference) / np.timedelta64(1, "s")
+        return numeric.astype(float), arr.dtype, reference
+
+    return arr, None, None
+
+
+def from_numeric(arr, dtype, reference):
+    """
+    Convert numeric arrays back to their original dtype.
+    """
+    if dtype is None:
+        return arr
+
+    return reference + (arr * np.timedelta64(1, "s")).astype("timedelta64[s]")
+
+def interpolate_over_nans(da, dim="N_MEASUREMENTS", method="linear"):
+    """
+    Interpolate over NaNs in a DataArray along the given dimension.
+    Works for numeric and datetime64 arrays alike.
+    """
+    if np.issubdtype(da.dtype, np.datetime64):
+        reference = da.values[0]
+        numeric_values = (da.values - reference) / np.timedelta64(1, "s")
+        numeric = xr.DataArray(numeric_values, dims=[dim])
+        numeric = numeric.interpolate_na(dim=dim, method=method)
+        result_values = reference + (numeric.values * np.timedelta64(1, "s")).astype("timedelta64[s]")
+        return xr.DataArray(result_values, dims=[dim])
+
+    return da.interpolate_na(dim=dim, method=method)
+
+
+def grid_dataset(ds, variables, bin_variable="DEPTH", res=5, agg="median"):
+    """
+    Grid a dataset along profiles.
+
+    Datetime variables are internally converted to seconds relative to the
+    first sample of each profile before gridding and converted back afterwards.
+    """
+
+    required_vars = [
+        "TIME",
+        "DEPTH",
+        "LONGITUDE",
+        "LATITUDE",
+        "PROFILE_NUMBER",
+    ]
+
+    coord_vars = ["TIME", "DEPTH", "LONGITUDE", "LATITUDE", bin_variable]
+
+    all_vars = list(dict.fromkeys(required_vars + list(variables)))
+    vars_to_grid = [v for v in all_vars if v not in (bin_variable, "PROFILE_NUMBER")]
+
+    profile_numbers = ds.PROFILE_NUMBER.values
+    unique_profiles = np.unique(profile_numbers)
+
+    gridded_vars = {}
+
+    profile_number_flat = None
+    bin_variable_flat = None
+
+    for var in vars_to_grid:
+
+        var_chunks = []
+        profile_chunks = []
+        bin_chunks = []
+
+        var_all = ds[var].values
+        bin_all = ds[bin_variable].values
+
+        for profile in unique_profiles:
+
+            mask = profile_numbers == profile
+
+            # ---- Extract one profile ----
+            var_profile, var_dtype, var_ref = to_numeric(var_all[mask])
+            bin_profile, bin_dtype, bin_ref = to_numeric(bin_all[mask])
+
+            # ---- Common grid ----
+            if res is not None:
+                yi = regular_grid(bin_profile, res)
+            else:
+                yi = abs(np.nanmean(np.diff(bin_profile)))
+
+            grid_var, xi_grid, yi_grid = construct_2dgrid(
+                profile_numbers[mask],
+                bin_profile,
+                var_profile,
+                xi=1,
+                yi=yi,
+                x_bin_center = False,
+                agg=agg,
+            )
+            if np.nanmean(np.diff(bin_profile)) < 0:
+                grid_var = grid_var[:, ::-1]
+                xi_grid = xi_grid[:, ::-1]
+                yi_grid = yi_grid[:, ::-1]
+
+            var_chunks.append(
+                from_numeric(grid_var.ravel(), var_dtype, var_ref)
+            )
+
+            profile_chunks.append(xi_grid.ravel())
+
+            if bin_variable_flat is None:
+                bin_chunks.append(
+                    from_numeric(yi_grid.ravel(), bin_dtype, bin_ref)
+                )
+
+        gridded_vars[var] = np.concatenate(var_chunks)
+
+        if profile_number_flat is None:
+            profile_number_flat = np.concatenate(profile_chunks)
+
+        if bin_variable_flat is None:
+            bin_variable_flat = np.concatenate(bin_chunks)
+
+    gridded_vars["PROFILE_NUMBER"] = profile_number_flat
+    gridded_vars[bin_variable] = bin_variable_flat
+
+    # ------------------------------------------------------------------
+    # Build output dataset
+    # ------------------------------------------------------------------
+
+    dim = "N_MEASUREMENTS"
+    n_measurements = len(profile_number_flat)
+
+    data_vars = {
+        var: (dim, values)
+        for var, values in gridded_vars.items()
+        if var not in coord_vars
+    }
+
+    ds_gridded = xr.Dataset(data_vars)
+
+    for coord in coord_vars:
+        if coord in gridded_vars:
+            ds_gridded.coords[coord] = (dim, gridded_vars[coord])
+
+    ds_gridded = ds_gridded.set_coords(
+        [c for c in coord_vars if c in ds_gridded]
+    )
+
+    # ------------------------------------------------------------------
+    # Copy metadata
+    # ------------------------------------------------------------------
+
+    for var in ds_gridded.variables:
+        if var in ds:
+            ds_gridded[var].attrs = dict(ds[var].attrs)
+
+    ds_gridded.attrs = dict(ds.attrs)
+    ds_gridded.attrs["gridding_bin_variable"] = bin_variable
+    ds_gridded.attrs["gridding_resolution"] = (
+        res if res is not None else "auto"
+    )
+
+    # ------------------------------------------------------------------
+    # Interpolate over NaNs in coordinate variables
+    # ------------------------------------------------------------------
+
+    for coord in coord_vars:
+        if coord in ds_gridded.coords:
+            ds_gridded.coords[coord] = interpolate_over_nans(
+                ds_gridded[coord], dim=dim
+            )
+
+    return ds_gridded
+
+# --------------------------------------------------------------
+# Functions for getting labels/ units from the variables dictionary
+# --------------------------------------------------------------
 
 def plotting_labels(var: str):
     """
@@ -129,6 +338,7 @@ def plotting_units(ds: xr.Dataset,var: str):
     else:
         return ""
     
+    
 def plotting_cmap(var: str):
     """
     Retrieves the colormap associated with a variable from a predefined dictionary.
@@ -153,25 +363,6 @@ def plotting_cmap(var: str):
 # --------------------------------------------------------------
 # Helpers for the load and convert script and interactive CLI
 # --------------------------------------------------------------
-
-
-def _is_mission_dir(path: pathlib.Path, readers) -> bool:
-    """Return True if `path` directly contains valid basestation .nc files."""
-    return bool(readers.list_files(str(path)))
-
-
-def _is_root_dir(path: pathlib.Path, readers) -> bool:
-    """Return True if `path` contains at least one glider_sn/mission/ subfolder
-    that itself contains valid .nc files."""
-    for glider_dir in path.iterdir():
-        if not glider_dir.is_dir():
-            continue
-        for mission_dir in glider_dir.iterdir():
-            if not mission_dir.is_dir():
-                continue
-            if readers.list_files(str(mission_dir)):
-                return True
-    return False
 
 
 def get_mission_dives(mission_path: pathlib.Path) -> int | None:
@@ -247,12 +438,3 @@ def discover_all_missions(data_dir: pathlib.Path) -> dict[str, list[dict]]:
             discovered[glider_dir.name] = missions  # e.g. '103'
 
     return discovered
-
-
-def _in_jupyter() -> bool:
-    """Return True when running inside a Jupyter kernel."""
-    try:
-        from IPython import get_ipython
-        return get_ipython() is not None
-    except ImportError:
-        return False
