@@ -223,7 +223,7 @@ def plot_section(ds, var, v_res=2, start=None, end=None, show_time_axis=True, me
     return ax, cbar, time_ax
 
 
-def plot_profile(ds: xr.Dataset, profile_num: int, vars: list = ['TEMP','PSAL','SIGMA_T'], use_bins: bool = False, binning: float = 2,one_axis: bool = False, ax = None) -> tuple:
+def plot_profile(ds: xr.Dataset, profile_num: int, vars: list = ['TEMP','PSAL','SIGMA_T'], one_axis: bool = False, ax = None) -> tuple:
     """
     Plots binned temperature, salinity, and density against depth on a single plot with three x-axes.
 
@@ -235,10 +235,10 @@ def plot_profile(ds: xr.Dataset, profile_num: int, vars: list = ['TEMP','PSAL','
         The profile number to plot.
     vars: list
         The variables to plot. Default is ['TEMP','PSAL','DENSITY'].
-    binning: int
-        The depth resolution for binning.
-    use_bins: bool
-        If True, use binned data instead of raw data.
+    one_axis: bool
+        If True, plot all variables on the same x-axis.
+    ax: matplotlib.axes.Axes, optional
+        The axes on which to plot. If None, a new figure and axes will be created.
 
     Returns
     -------
@@ -252,27 +252,14 @@ def plot_profile(ds: xr.Dataset, profile_num: int, vars: list = ['TEMP','PSAL','
     Original Author: Till Moritz
     """
     # Remove empty strings from vars
-    vars = [v for v in vars if v] 
-    # If vars is empty, show an empty plot
-    if not vars:
-        if ax is None:  
-            fig, ax1 = plt.subplots(figsize=(12, 9))
-            force_plot = True
-        else:
-            fig = plt.gcf()
-            force_plot = False
-        ax1.set_title(f'Profile {profile_num} (No Variables Selected)')
-        ax1.set_ylabel('Depth (m)')
-        ax1.invert_yaxis()
-        ax1.grid(True)
-        return fig, ax1
+    vars = [v for v in vars if v]
     
     if len(vars) > 3:
         raise ValueError("Only three variables can be plotted at once, chose less variables")
     
     with plt.style.context(plotting_style):
         if ax is None:  
-            fig, ax1 = plt.subplots(figsize=(12, 9))   
+            fig, ax1 = plt.subplots(figsize=(8, 8))   
             force_plot = True
         else:
             fig = plt.gcf()
@@ -280,8 +267,6 @@ def plot_profile(ds: xr.Dataset, profile_num: int, vars: list = ['TEMP','PSAL','
             ax1 = ax  # Use the first axis if provided
 
         profile = ds.where(ds.PROFILE_NUMBER == profile_num, drop=True)
-        if use_bins:
-            profile = utilities.bin_profile(profile, vars, binning)
 
         # Plot binned data
         mission = ds.id.split('_')[1][0:8]
@@ -292,14 +277,15 @@ def plot_profile(ds: xr.Dataset, profile_num: int, vars: list = ['TEMP','PSAL','
         else:
             axs = [ax1, ax1.twiny(), ax1.twiny()]
         colors = ['red', 'blue', 'grey']
-        s = 10 + binning
 
+        handles = []
         for i, var in enumerate(vars):
             ax = axs[i]
             label = utilities.plotting_labels(var)
             unit = utilities.plotting_units(ds, var)
-            ax.plot(profile[var], profile['DEPTH'], color=colors[i], label=label)
-            ax.scatter(profile[var], profile['DEPTH'], color=colors[i], marker='o', s=s)
+            line, = ax.plot(profile[var], profile['DEPTH'], '-o', color=colors[i], ms=3, lw=1, label=f"{label} [{unit}]")
+            handles.append(line)
+            #ax.scatter(profile[var], profile['DEPTH'], color=colors[i], marker='o', s=10)
             ax.set_xlabel(f'{label} [{unit}]', color=colors[i])
             ax.tick_params(axis='x', colors=colors[i])
             ax.spines['top'].set_visible(False)
@@ -307,17 +293,102 @@ def plot_profile(ds: xr.Dataset, profile_num: int, vars: list = ['TEMP','PSAL','
                 ax.xaxis.set_ticks_position('bottom')
                 ax.spines['bottom'].set_position(('axes', -0.09*i))
                 ax.xaxis.set_label_coords(0.5, -0.05-0.105*i)
-            else:
-                ## set the x-axis lables to black and the ticks to black
-                ax.xaxis.label.set_color('black')
-                ax.tick_params(axis='x', colors='black')
-                ## add a legend to the plot with the variable name and color
-                ax.legend(fontsize=12)
+        if one_axis:
+            ax1.set_xlabel("Variables", color="black")
+            ax1.tick_params(axis="x", colors="black")
+            ax1.legend(handles=handles, labels=[f"{utilities.plotting_labels(v)} [{utilities.plotting_units(ds, v)}]" for v in vars], fontsize=12)
 
         # Set pressure as y-axis (Increasing Downward)
         ax1.grid(True)
         ax1.set_ylabel('Depth (m)')
         ax1.invert_yaxis()  # Pressure increases downward
         ax1.set_title(f'Profile {profile_num} ({glider} on mission: {mission})')
+
+    return fig, ax1
+
+
+def plot_profile_time_series(ds: xr.Dataset, profile_num: int, vars: list = ['TEMP','PSAL','SIGMA_T'], one_axis: bool = False, ax=None):
+    """
+    Plot up to three variables as time series with a shared time axis.
+
+    Parameters
+    ----------
+    ds : xarray.Dataset
+        Dataset containing TIME and the selected variables.
+    vars : list
+        Variables to plot (maximum 3).
+    one_axis : bool
+        If True, plot all variables on the same y-axis.
+    ax : matplotlib.axes.Axes, optional
+        Existing axis.
+
+    Returns
+    -------
+    fig, ax1
+    """
+
+    vars = [v for v in vars if v]
+
+    if len(vars) > 3:
+        raise ValueError("Only up to three variables can be plotted.")
+
+    with plt.style.context(plotting_style):
+
+        if ax is None:
+            fig, ax1 = plt.subplots(figsize=(12, 6))
+        else:
+            fig = plt.gcf()
+            ax1 = ax
+
+        profile = ds.where(ds.PROFILE_NUMBER == profile_num, drop=True)
+
+        if one_axis:
+            axs = [ax1] * len(vars)
+        else:
+            axs = [ax1]
+
+            if len(vars) >= 2:
+                axs.append(ax1.twinx())
+
+            if len(vars) == 3:
+                ax3 = ax1.twinx()
+                ax3.spines["right"].set_position(("axes", 1.12))
+                axs.append(ax3)
+
+        colors = ['red', 'blue', 'grey']
+
+        handles = []
+        for i, var in enumerate(vars):
+
+            axi = axs[i]
+
+            if not one_axis and i == 2:
+                axi.spines["right"].set_position(("axes", 1.12))
+
+            label = utilities.plotting_labels(var)
+            unit = utilities.plotting_units(ds, var)
+
+            line, = axi.plot(profile.TIME, profile[var], '-o', color=colors[i], ms=3, lw=1, label=f"{label} [{unit}]")
+            handles.append(line)
+
+            axi.set_ylabel(f"{label} [{unit}]", color=colors[i])
+            axi.tick_params(axis="y", colors=colors[i])
+
+        if one_axis:
+            ### put all the labels in one legend
+            axi.set_ylabel("Variables", color="black")
+            axi.tick_params(axis="y", colors="black")
+            axi.legend(handles=handles, labels=[f"{utilities.plotting_labels(v)} [{utilities.plotting_units(ds, v)}]" for v in vars], fontsize=12)
+
+        mission = ds.id.split('_')[1][0:8]
+        glider = ds.id.split('_')[0]
+
+        ax1.set_xlabel("Time")
+        ax1.grid(True)
+        fig.autofmt_xdate()
+
+        ax1.set_title(f"Profile {profile_num} ({glider} on mission {mission})")
+
+        fig.autofmt_xdate()
 
     return fig, ax1

@@ -183,9 +183,12 @@ def interactive_profile(ds):
     Original author: Till Moritz
     """
 
-    def plot_func(profile_num, var1, var2, var3, use_bins, binning, one_axis):
+    def plot_func(profile_num, profile_type, var1, var2, var3, one_axis):
         vars = [var1, var2, var3]
-        fig, ax = plots.plot_profile(ds, profile_num, vars, use_bins, binning, one_axis)
+        if profile_type == 'TIME':
+            fig, ax = plots.plot_profile_time_series(ds, profile_num, vars, one_axis)
+        else:
+            fig, ax = plots.plot_profile(ds, profile_num, vars, one_axis)
         display(fig)
         plt.close(fig)
         del fig, ax
@@ -198,48 +201,32 @@ def interactive_profile(ds):
     ### also add the possible coordinates
     var_options += [var for var in ds.coords if ds[var].dtype.kind in {'i', 'f'}]
 
+    time_depth_toggle = widgets.ToggleButtons(options=['TIME', 'DEPTH'], description='Profile Type:', value='TIME')
+
     var1_dropdown = widgets.Dropdown(options=var_options, value=var_options[0], description="Var 1:")
     var2_dropdown = widgets.Dropdown(options=var_options, value=var_options[0], description="Var 2:")
     var3_dropdown = widgets.Dropdown(options=var_options, value=var_options[0], description="Var 3:")
 
-    # Checkbox for using binned data
-    use_bins_button = widgets.Checkbox(value=False, description='Bin Data')
-
     # Checkbox for using a single axis for all variables
     one_axis_button = widgets.Checkbox(value=False, description='One Axis')
-
-    # Binning resolution slider
-    binning_slider = widgets.FloatSlider(value=2, min=1, max=20, step=1,description='Res (m):',continuous_update=False)
-
-
-    # Use a VBox to show/hide the binning slider based on the checkbox state
-    binning_box = widgets.VBox([binning_slider])
-    def toggle_binning_visibility(change):
-        binning_box.layout.display = 'flex' if change['new'] else 'none'
-
-    # Attach observer to toggle visibility
-    use_bins_button.observe(toggle_binning_visibility, names='value')
-
-    # Set initial visibility
-    binning_box.layout.display = 'none' if not use_bins_button.value else 'flex'
 
     # Arrange variable dropdowns in a horizontal row
     var_selection_box = widgets.HBox([var1_dropdown, var2_dropdown, var3_dropdown])
 
     # Arrange all widgets in a vertical layout
     ui = widgets.VBox([widgets.Label("Select the profile number to visualize:"),profile_slider,
+                       widgets.Label("Select the profile type (TIME or DEPTH):"),time_depth_toggle,
                        widgets.Label("Choose up to three variables to plot:"),var_selection_box,
-                       widgets.Label("Additional settings:"),use_bins_button,one_axis_button,binning_box])
+                       widgets.Label("Additional settings:"),one_axis_button])
 
     # Create interactive plot
     out = widgets.interactive_output(plot_func, {
         'profile_num': profile_slider,
+        'profile_type': time_depth_toggle,
         'var1': var1_dropdown,
         'var2': var2_dropdown,
         'var3': var3_dropdown,
         'one_axis': one_axis_button,
-        'use_bins': use_bins_button,
-        'binning': binning_slider
     })
 
     display(ui, out)
