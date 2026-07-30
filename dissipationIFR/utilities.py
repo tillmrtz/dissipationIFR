@@ -438,3 +438,17 @@ def discover_all_missions(data_dir: pathlib.Path) -> dict[str, list[dict]]:
             discovered[glider_dir.name] = missions  # e.g. '103'
 
     return discovered
+
+
+def _in_jupyter() -> bool:
+    """Return True when running inside a Jupyter kernel."""
+    try:
+        from IPython import get_ipython
+        return get_ipython() is not None
+    except ImportError:
+        return False
+    
+
+def _is_mission_dir(path: pathlib.Path, readers) -> bool:
+    """Return True if `path` directly contains valid basestation .nc files."""
+    return bool(readers.list_files(str(path)))
