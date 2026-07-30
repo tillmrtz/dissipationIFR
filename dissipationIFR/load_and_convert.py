@@ -114,7 +114,8 @@ def convert_mission(mission_path, glider_id, mission_id, end_profile,
 
     from dissipationIFR.config import vars_to_keep
     print("Keep only variables of interest: \n  " + ", ".join(vars_to_keep))
-    ds = ds[[v for v in ds.data_vars if v in vars_to_keep]]
+    print(f"Original variables: {list(ds.data_vars)}")
+    ds = ds[[v for v in list(ds.data_vars) if v in vars_to_keep]]
 
     print(f"Saving to: {dataset_path}")
     writers.save_dataset(ds, dataset_path)
