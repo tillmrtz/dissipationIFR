@@ -58,6 +58,7 @@ def convert_mission(mission_path, glider_id, mission_id, end_profile,
     end_profile (int): Last profile/dive index to load.
     output_dir (Path | None): Directory to save the output NetCDF file. If None, saves in the mission folder.
     overwrite (bool): Whether to overwrite existing output files.
+    interactive_overwrite (bool): Whether to ask for confirmation before overwriting.
     tools, variables, convertOG1, writers, readers: Modules/functions for processing.
 
     Returns:
@@ -81,8 +82,17 @@ def convert_mission(mission_path, glider_id, mission_id, end_profile,
             print(f"Overwriting existing file: {dataset_path}")
             dataset_path.unlink()
         else:
-            print(f"Skipping — output already exists (use --overwrite to replace):\n  {dataset_path}")
-            return False
+            answer = input(
+                        f"\nOutput already exists:\n"
+                        f"  {dataset_path}\n"
+                        f"Overwrite? [y/N]: "
+                    ).strip().lower()
+        
+            if answer not in ("y", "yes"):
+                print(f"Skipping — output already exists:\n  {dataset_path}")
+                return False
+
+            dataset_path.unlink()
 
     print("Loading basestation files...")
     datasets = readers.load_basestation_files(
@@ -101,6 +111,10 @@ def convert_mission(mission_path, glider_id, mission_id, end_profile,
     w_meas = tools.calc_vertical_velocity(ds.TIME.values, ds.DEPTH.values)
     ds["W_MEAS"]       = (("N_MEASUREMENTS",), w_meas)
     ds["W_MEAS"].attrs = variables["W_MEAS"]["attributes"]
+
+    from dissipationIFR.config import vars_to_keep
+    print("Keep only variables of interest: \n  " + ", ".join(vars_to_keep))
+    ds = ds[[v for v in ds.data_vars if v in vars_to_keep]]
 
     print(f"Saving to: {dataset_path}")
     writers.save_dataset(ds, dataset_path)
@@ -179,6 +193,12 @@ def main():
     if not data_dir.exists():
         sys.exit(f"Error: data_dir does not exist: {data_dir}")
 
+    if args.overwrite:
+        print("Warning: --overwrite is enabled. Existing output files will be overwritten.")
+        answer = input("Are you sure you want to overwrite? [y/N]: ").strip().lower()
+        if answer not in ("y", "yes"):
+            args.overwrite = False
+
     convert_kwargs = dict(
         overwrite=args.overwrite,
         tools=tools,
@@ -254,7 +274,6 @@ def main():
                     sys.exit("No glider mission selected. Exiting.")
             else:
                 selected = interactive.interactive_cli(data_dir)
-                ### Che
 
             mission_path = pathlib.Path(selected["path"])
             end_profile  = args.end_profile or selected["dives"]
