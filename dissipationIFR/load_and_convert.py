@@ -253,7 +253,8 @@ def main():
                 if selected["path"] is None:
                     sys.exit("No glider mission selected. Exiting.")
             else:
-                selected = interactive.interactive_cli(data_dir, discovered)
+                selected = interactive.interactive_cli(data_dir)
+                ### Che
 
             mission_path = pathlib.Path(selected["path"])
             end_profile  = args.end_profile or selected["dives"]

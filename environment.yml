@@ -1,6 +1,10 @@
 # environment.yml
 # create environment with:
 # $  conda env create -f environment.yml
+# After creating the environment, set up for Jupyter with:
+# python -m ipykernel install --user \
+#    --name dissipationIFR \
+#    --display-name "🌊 dissipationIFR"
 name: dissipationIFR
 
 channels:
