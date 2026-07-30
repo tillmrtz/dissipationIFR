@@ -1,7 +1,9 @@
 import xarray as xr
+import pandas as pd
 import numpy as np
 import gsw
 from tqdm import tqdm
+from scipy.signal import butter, filtfilt
 
 
 def calc_vertical_velocity(time: np.ndarray, depth: np.ndarray) -> np.ndarray:
@@ -32,6 +34,10 @@ def calc_vertical_velocity(time: np.ndarray, depth: np.ndarray) -> np.ndarray:
     w_meas = np.concatenate(([np.nan], w_meas, [np.nan]))  # Pad ends with NaN
 
     return w_meas
+
+# --------------------------------------------------------------------
+# Calculate buoyancy frequency (Brunt-Väisälä frequency) functions
+# --------------------------------------------------------------------
 
 
 def calc_n(press, temp, salinity, lat, lon, rho0=1027.0, n=2):
@@ -206,3 +212,243 @@ def calc_n_sorted(profile_number, press, temp, salinity, lat, lon, plev=20):
         )
 
     return n_all
+
+# --------------------------------------------------------------------
+# Highpass filter functions
+# --------------------------------------------------------------------
+
+def _trim_nan_edges(arr):
+    """
+    Trims NaN values from the beginning and end of a 1D array.
+
+    Parameters
+    ----------
+    arr: np.ndarray
+        Input array to be trimmed.
+
+    Returns
+    -------
+    trimmed_arr: np.ndarray
+        Array with NaN values trimmed from the edges.
+    first: int
+        Index of the first non-NaN value.
+    last: int
+        Index of the last non-NaN value.
+    """
+    is_not_nan = ~np.isnan(arr)
+    if not is_not_nan.any():
+        return np.array([]), 0, 0
+    first = np.argmax(is_not_nan)
+    last = len(arr) - np.argmax(is_not_nan[::-1])
+    return arr[first:last], first, last
+
+
+def _design_filter(mean_dt, cutoff_period, order):
+    """Designs a highpass Butterworth filter for a given cutoff period and sampling interval.
+    Returns None if the resulting critical frequency is invalid."""
+    if cutoff_period is None or not np.isfinite(cutoff_period) or cutoff_period <= 0:
+        return None
+    fs = 1 / mean_dt
+    fc = 1 / cutoff_period
+    wn = 2 * fc / fs
+    if not (0 < wn < 1):
+        return None
+    return butter(order, wn, btype='high')
+
+
+def highpass_butterworth_time(var_arr, time, profile_number, cutoff_period=330, order=4,
+                               max_interval=40, adaptive_window=None):
+    """
+    Applies a highpass Butterworth filter to a variable over time, per profile.
+
+    Assumes input arrays are already gridded (i.e. no binning is performed).
+
+    Parameters
+    ----------
+    var_arr : np.ndarray
+        1D array of the variable to filter.
+    time : np.ndarray
+        1D array of timestamps (datetime64), same length as var_arr.
+    profile_number : np.ndarray
+        1D array of profile numbers, same length as var_arr.
+    cutoff_period : float or np.ndarray, optional
+        Highpass cutoff period in seconds (default 330s). If an array is
+        given (same length as var_arr), it is treated as a spatially/
+        temporally varying cutoff, and `adaptive_window` must also be set.
+    order : int, optional
+        Butterworth filter order (default 4).
+    max_interval : float, optional
+        Max gap (in seconds) to treat data as continuous (default 40s).
+    adaptive_window : float, optional
+        Window length in seconds. Required if cutoff_period is an array.
+        Within each profile, the signal is split into windows of this
+        length. For each window, the mean of cutoff_period within that
+        window is used to design a Butterworth filter, which is applied
+        to the full trimmed profile; only the filtered values falling
+        inside that window are kept from that run.
+
+    Returns
+    -------
+    np.ndarray
+        Filtered array, same shape as var_arr, with NaNs where filtering
+        could not be applied (gaps, edges, skipped profiles).
+    """
+    is_adaptive = isinstance(cutoff_period, np.ndarray)
+    if is_adaptive and adaptive_window is None:
+        raise ValueError("adaptive_window must be set when cutoff_period is an array.")
+
+    filtered_full = np.full_like(var_arr, np.nan, dtype=float)
+
+    unique_profiles = np.unique(profile_number)
+    for pn in tqdm(unique_profiles, desc="Filtering"):
+        mask = profile_number == pn
+        signal = var_arr[mask]
+        t = time[mask]
+
+        dt = np.diff(t) / np.timedelta64(1, 's')
+        dt[dt > max_interval] = np.nan
+        if np.all(np.isnan(dt)):
+            continue
+        mean_dt = np.nanmean(dt)
+        if mean_dt == 0:
+            continue
+
+        trimmed, start, end = _trim_nan_edges(signal)
+        if trimmed.size == 0:
+            continue
+
+        valid = ~np.isnan(trimmed)
+
+        # Interpolate NaNs before filtering
+        if np.isnan(trimmed).any():
+            trimmed = pd.Series(trimmed).interpolate(
+                method='linear', limit_direction='both').values
+
+        if is_adaptive:
+            cutoff_sub = cutoff_period[mask][start:end]
+            win_samples = max(1, int(round(adaptive_window / mean_dt)))
+
+            profile_filtered = np.full_like(trimmed, np.nan, dtype=float)
+
+            for win_start in range(0, len(trimmed), win_samples):
+                win_end = min(win_start + win_samples, len(trimmed))
+                win_cutoff = np.nanmean(cutoff_sub[win_start:win_end])
+                #print(f"Profile {pn}, Window {win_start}-{win_end}: mean cutoff = {win_cutoff} dt: {mean_dt}")
+                if np.isnan(win_cutoff):
+                    continue
+
+                result = _design_filter(mean_dt, win_cutoff, order)
+                if result is None:
+                    continue
+                b, a = result
+
+                if len(trimmed) <= 3 * max(len(a), len(b)):
+                    continue
+
+                filtered_run = filtfilt(b, a, trimmed)
+                profile_filtered[win_start:win_end] = filtered_run[win_start:win_end]
+
+            # profile_filtered[~valid] = np.nan
+
+            full_profile = np.full_like(signal, np.nan, dtype=float)
+            full_profile[start:end] = profile_filtered
+            filtered_full[mask] = full_profile
+
+        else:
+            result = _design_filter(mean_dt, cutoff_period, order)
+            if result is None:
+                continue
+            b, a = result
+
+            if len(trimmed) > 3 * max(len(a), len(b)):
+                filtered = filtfilt(b, a, trimmed)
+                # filtered[~valid] = np.nan
+
+                profile_filtered = np.full_like(signal, np.nan, dtype=float)
+                profile_filtered[start:end] = filtered
+                filtered_full[mask] = profile_filtered
+
+    return filtered_full
+
+
+# --------------------------------------------------------------------
+# Rolling RMS function
+# --------------------------------------------------------------------
+
+
+def rolling_rms(var_arr, time, profile_number, window_size_seconds=100):
+    """
+    Computes the RMS of a variable in a centered rolling window, per profile.
+
+    Assumes input arrays are already gridded (i.e. no binning is performed).
+
+    Parameters
+    ----------
+    var_arr : np.ndarray
+        1D array of the variable to compute RMS for.
+    time : np.ndarray
+        1D array of timestamps (datetime64), same length as var_arr.
+    profile_number : np.ndarray
+        1D array of profile numbers, same length as var_arr.
+    window_size_seconds : float, optional
+        Size of the time window in seconds for computing RMS (default 100s).
+    max_interval : float, optional
+        Max gap (in seconds) to treat data as continuous when estimating
+        the mean sampling interval (default 100s).
+
+    Returns
+    -------
+    np.ndarray
+        RMS array, same shape as var_arr, with NaNs where insufficient
+        data was available (edges, skipped profiles).
+    """
+    rms_full = np.full_like(var_arr, np.nan, dtype=float)
+
+    unique_profiles = np.unique(profile_number)
+    for pn in tqdm(unique_profiles, desc="Computing RMS"):
+        mask = profile_number == pn
+        signal = var_arr[mask]
+        t = time[mask]
+
+        if len(t) < 2:
+            continue
+
+        dt = np.diff(t) / np.timedelta64(1, 's')
+        mean_dt = np.mean(dt) if len(dt) > 0 else 1.0
+        if mean_dt <= 0:
+            continue
+
+        window_size = max(1, int(round(window_size_seconds / mean_dt)))
+
+        squared = pd.Series(signal) ** 2
+        mean_sq = squared.rolling(window=window_size, center=True, min_periods=1).mean()
+        rms = np.sqrt(mean_sq.values)
+
+        rms_full[mask] = rms
+
+    return rms_full
+
+# --------------------------------------------------------------------
+# Calculate turbulent kinetic energy dissipation rate (epsilon) function
+# --------------------------------------------------------------------
+
+def calc_epsilon(velocity_rms, n, c = 1.0):
+    """
+    Calculates the turbulent kinetic energy dissipation rate (epsilon) from the RMS of velocity fluctuations and buoyancy frequency.
+
+    Parameters
+    ----------
+    velocity_rms : np.ndarray
+        1D array of RMS of velocity fluctuations (m/s).
+    n : np.ndarray
+        1D array of buoyancy frequency (rad/s).
+    c : float, optional
+        Constant of proportionality. need to be derived by comparing to microstructure measurements (default is 1.0).
+
+    Returns
+    -------
+    np.ndarray
+        1D array of epsilon values (W/kg), same shape as input arrays.
+    """
+    epsilon = c * (velocity_rms ** 2) * n
+    return epsilon
