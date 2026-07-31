@@ -452,3 +452,35 @@ def calc_epsilon(velocity_rms, n, c = 1.0):
     """
     epsilon = c * (velocity_rms ** 2) * n
     return epsilon
+
+
+# --------------------------------------------------------------------
+# Calculate bathymetry levels for plotting
+# --------------------------------------------------------------------
+
+
+def get_bathymetry_levels(bath, level_spacing=250):
+        """
+        This function computes the bathymetry levels for a given bathymetry dataset.
+
+        Parameters
+        ----------
+        bath: xarray.Dataset
+            Bathymetry dataset with 'elevation' variable.
+        level_spacing: int, optional
+            The spacing between contour levels. Default is 250 m.
+
+        Returns
+        -------
+        levels: numpy.ndarray
+            An array of bathymetry levels.
+        contour_levels: numpy.ndarray
+            An array of contour levels.
+        max_level: int
+            The maximum bathymetry level.
+        """
+        max_depth = np.max(-bath.elevation.values)  # Depths are negative
+        max_level = level_spacing * (np.round(max_depth / level_spacing) + 1)
+        levels = np.arange(0, max_level, level_spacing)
+        contour_levels = levels[::2]  # Every second level
+        return levels, contour_levels, max_level
