@@ -1,7 +1,7 @@
 import cmocean.cm as cmo
 import numpy as np
 
-variables = {
+Glider_variables = {
     'EPSILON': {'attributes': {
         'long_name': 'Dissipation Rate of Turbulent Kinetic Energy',
         'units': 'W/kg',
@@ -97,3 +97,88 @@ vars_to_keep = ['GLIDER_VERT_VELO_MODEL',
                 'DEPLOYMENT_LATITUDE',
                 'DEPLOYMENT_LONGITUDE',
                 'DEPLOYMENT_TIME']
+
+
+VMP_variables =  {
+            'TIME': {
+                'source': 'date',
+                'dims': 'TIME',
+                'name': 'TIME',
+                'convert_time': True
+            },
+            'LONGITUDE': {
+                'source': 'LON',
+                'dims': 'TIME',
+                'name': 'LONGITUDE',
+                'attrs': {'units': 'degrees_east'}
+            },
+            'LATITUDE': {
+                'source': 'LAT',
+                'dims': 'TIME',
+                'name': 'LATITUDE',
+                'attrs': {'units': 'degrees_north'}
+            },
+            'PROFILE_NUMBER': {
+                'source': 'casts',
+                'dims': 'TIME',
+                'name': 'PROFILE_NUMBER'
+            },
+            'ECHODEPTH': {
+                'source': 'EchoDepth',
+                'dims': 'TIME',
+                'name': 'ECHODEPTH',
+                'attrs': {'units': 'meters'}
+            },
+            'STATION_NAME': {
+                'source': 'stname',
+                'dims': 'TIME',
+                'name': 'STATION_NAME',
+                'handle_list': True
+            },
+            'EPSILON': {
+                'source': 'eps',
+                'dims': ['N_MEAS', 'TIME'],
+                'name': 'EPSILON',
+                'attrs': {'units': 'W/kg'}
+            },
+            'E1': {
+                'source': 'e1',
+                'dims': ['N_MEAS', 'TIME'],
+                'name': 'E1'
+            },
+            'E2': {
+                'source': 'e2',
+                'dims': ['N_MEAS', 'TIME'],
+                'name': 'E2'
+            },
+            'SIGTHETA': {
+                'source': 'SIGTH',
+                'dims': ['N_MEAS', 'TIME'],
+                'name': 'SIGTHETA',
+                'attrs': {'units': 'kg/m^3'}
+            },
+            'TEMP': {
+                'source': 'T',
+                'dims': ['N_MEAS', 'TIME'],
+                'name': 'TEMP',
+                'attrs': {'units': '°C'}
+            },
+            'DEPTH': {
+                'source': 'z',
+                'dims': ['N_MEAS', 'TIME'],
+                'name': 'DEPTH',
+                'attrs': {'units': 'meters'}
+            },
+            'PRES': {
+                'source': 'P',
+                'dims': ['N_MEAS', 'TIME'],
+                'name': 'PRES',
+                'attrs': {'units': 'dbar'}
+            },
+            'HAB': {
+                'source': 'hab',
+                'dims': ['N_MEAS', 'TIME'],
+                'name': 'HAB',
+                'attrs': {'units': 'm', 'long_name': 'Height above bottom'}
+            }
+        }
