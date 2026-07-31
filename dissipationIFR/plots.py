@@ -62,7 +62,7 @@ def get_contour_levels(levels=None, log_scale=False, vmin=None, vmax=None):
 
     return levels
 
-def plot_section(ds, var, v_res=2, start=None, end=None, show_time_axis=True, method="pcolormesh", log_scale=False, ax = None, **kw,):
+def plot_section(ds, var, v_res=2, start=None, end=None, show_time_axis=True, method="pcolormesh", log_scale=False, agg="mean", ax = None, **kw,):
     """
     Plots a section of the specified variable from the dataset `ds` against depth and profile number.
 
@@ -131,6 +131,7 @@ def plot_section(ds, var, v_res=2, start=None, end=None, show_time_axis=True, me
         1,
         v_res,
         x_bin_center=False,
+        agg = agg,
     )
 
     if kw.get("vmin") is None or kw.get("vmax") is None:

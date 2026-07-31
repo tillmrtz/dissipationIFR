@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-from dissipationIFR.config.variables import variables
+from dissipationIFR.config.variables import Glider_variables as variables
 from seagliderOG1 import readers
 
 
@@ -239,10 +239,7 @@ def grid_dataset(ds, variables, bin_variable="DEPTH", res=5, agg="median"):
     gridded_vars["PROFILE_NUMBER"] = profile_number_flat
     gridded_vars[bin_variable] = bin_variable_flat
 
-    # ------------------------------------------------------------------
-    # Build output dataset
-    # ------------------------------------------------------------------
-
+    ### Build output dataset
     dim = "N_MEASUREMENTS"
     n_measurements = len(profile_number_flat)
 
@@ -262,10 +259,8 @@ def grid_dataset(ds, variables, bin_variable="DEPTH", res=5, agg="median"):
         [c for c in coord_vars if c in ds_gridded]
     )
 
-    # ------------------------------------------------------------------
-    # Copy metadata
-    # ------------------------------------------------------------------
-
+    
+    ### Copy metadata
     for var in ds_gridded.variables:
         if var in ds:
             ds_gridded[var].attrs = dict(ds[var].attrs)
@@ -276,10 +271,7 @@ def grid_dataset(ds, variables, bin_variable="DEPTH", res=5, agg="median"):
         res if res is not None else "auto"
     )
 
-    # ------------------------------------------------------------------
-    # Interpolate over NaNs in coordinate variables
-    # ------------------------------------------------------------------
-
+    ### Interpolate over NaNs in coordinate variables
     for coord in coord_vars:
         if coord in ds_gridded.coords:
             ds_gridded.coords[coord] = interpolate_over_nans(
@@ -287,6 +279,57 @@ def grid_dataset(ds, variables, bin_variable="DEPTH", res=5, agg="median"):
             )
 
     return ds_gridded
+
+
+# --------------------------------------------------------------
+# Function for converting the MATLAB VMP structure to an xarray Dataset
+# --------------------------------------------------------------
+
+
+def create_vmp_dataset(data, variables):
+    """Convert the MATLAB VMP structure to an xarray Dataset.
+
+    Parameters
+    ----------
+    data : dict
+        The MATLAB data structure loaded using scipy.io.loadmat.
+    variables : dict
+        A dictionary defining the variables to extract, their source in the MATLAB structure,
+        their dimensions, and any attributes.  
+    
+    Returns
+    -------
+    xr.Dataset
+        An xarray Dataset containing the extracted variables and coordinates.
+    """
+
+    coords = {}
+    data_vars = {}
+
+    coord_vars = {"TIME", "LATITUDE", "LONGITUDE", "PROFILE_NUMBER", "STATION_NAME"}
+
+    for key, meta in variables.items():
+        raw = np.squeeze(np.asarray(data["MERGED"][meta["source"]][0][0]))
+
+        if meta.get("convert_time"):
+            values = pd.to_datetime([x[0] for x in raw]).to_numpy(dtype="datetime64[s]")
+        elif meta.get("handle_list"):
+            values = [x[0] for x in raw]
+        else:
+            values = raw
+
+        da = xr.DataArray(values, dims=meta["dims"], name=meta["name"], attrs=meta.get("attrs", {}))
+
+        (coords if key in coord_vars else data_vars)[key] = da
+
+    ds = xr.Dataset(data_vars, coords=coords)
+
+    return (
+    ds.stack(N_MEASUREMENTS=("TIME", "N_MEAS"))
+      .reset_index("N_MEASUREMENTS")
+      .drop_vars("N_MEAS")
+    )
+
 
 # --------------------------------------------------------------
 # Functions for getting labels/ units from the variables dictionary
