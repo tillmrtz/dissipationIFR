@@ -115,6 +115,120 @@ def calc_n(press, temp, salinity, lat, lon, rho0=1027.0, n=2):
     return n_all
 
 
+def calc_n(press, temp=None, salinity=None, density=None, lat=None, lon=None,
+           rho0=1027.0, n=2):
+    """
+    Compute unsorted (in-situ) Brunt-Väisälä frequency using a windowed
+    linear regression of density vs. depth.
+    Density can either be calculated from temperature and salinity, or
+    supplied directly.
+
+    Parameters
+    ----------
+    press : 1D array
+        Pressure [dbar].
+    temp : 1D array, optional
+        Temperature [°C]. Must be provided together with salinity if
+        density is not supplied.
+    salinity : 1D array, optional
+        Practical salinity [PSU]. Must be provided together with temp if
+        density is not supplied.
+    density : 1D array, optional
+        Potential density anomaly sigma0 [kg/m^3]. If supplied, temp and
+        salinity are ignored.
+    lat, lon : 1D array or float, optional
+        Latitude / longitude. Required when temp and salinity are supplied.
+        Latitude is also required for converting pressure to depth.
+    rho0 : float, optional
+        Reference density [kg/m^3] (default 1027.0).
+    n : int, optional
+        Number of points in each direction defining the window half-width
+        (default 2, i.e. a 5-point window).
+
+    Returns
+    -------
+    1D array
+        N [1/s], same length as input, NaN where not computable.
+    """
+    press = np.asarray(press, dtype=float)
+
+    # ------------------------------------------------------------------
+    # Calculate density from T/S, or use supplied density
+    # ------------------------------------------------------------------
+    if density is not None:
+        if temp is not None or salinity is not None:
+            raise ValueError(
+                "Provide either density or temp + salinity, not both."
+            )
+
+        density = np.asarray(density, dtype=float)
+
+    else:
+        if temp is None or salinity is None:
+            raise ValueError(
+                "Provide either density, or both temp and salinity."
+            )
+
+        if lat is None or lon is None:
+            raise ValueError(
+                "lat and lon are required when temp and salinity are supplied."
+            )
+
+        temp = np.asarray(temp, dtype=float)
+        salinity = np.asarray(salinity, dtype=float)
+
+        SA = gsw.SA_from_SP(salinity, press, lon, lat)
+        CT = gsw.CT_from_t(SA, temp, press)
+        density = gsw.sigma0(SA, CT)
+
+    # ------------------------------------------------------------------
+    # Depth and gravity
+    # ------------------------------------------------------------------
+    if lat is None:
+        raise ValueError("lat is required to calculate depth from pressure.")
+
+    depth = gsw.z_from_p(press, lat)  # negative z, positive depth
+
+    # gsw.z_from_p returns negative depth, so use -z as depth positive down.
+    depth = -depth
+
+    g = gsw.grav(lat, press)
+
+    # ------------------------------------------------------------------
+    # Windowed linear regression of density vs. depth
+    # ------------------------------------------------------------------
+    n_pts = len(depth)
+    n_all = np.full(n_pts, np.nan, dtype=float)
+
+    for i in range(n_pts):
+        lo = max(i - n, 0)
+        hi = min(i + n + 1, n_pts)
+
+        z_win = depth[lo:hi]
+        rho_win = density[lo:hi]
+
+        valid = ~(np.isnan(z_win) | np.isnan(rho_win))
+
+        if np.count_nonzero(valid) < 2:
+            continue
+
+        z_valid = z_win[valid]
+        rho_valid = rho_win[valid]
+
+        if np.var(z_valid) == 0:
+            continue
+
+        drho_dz = np.cov(z_valid, rho_valid)[0, 1] / np.var(z_valid)
+
+        # Locally unstable
+        if drho_dz < 0:
+            continue
+
+        n_all[i] = np.sqrt((g[i] / rho0) * drho_dz)
+
+    return n_all
+
+
 def calc_n_sorted(profile_number, press, temp, salinity, lat, lon, plev=20):
     """
     Compute adiabatically-sorted Brunt-Väisälä frequency (N) for one or more
